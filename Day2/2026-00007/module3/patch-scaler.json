@@ -1,0 +1,1 @@
+{"spec":{"advanced":{"horizontalPodAutoscalerConfig":{"behavior":{"scaleUp":{"stabilizationWindowSeconds":0,"policies":[{"type":"Pods","value":5,"periodSeconds":15}]},"scaleDown":{"stabilizationWindowSeconds":15,"policies":[{"type":"Percent","value":100,"periodSeconds":15}]}}}}}}

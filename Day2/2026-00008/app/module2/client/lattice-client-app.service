@@ -1,0 +1,17 @@
+[Unit]
+Description=Skills VPC Lattice Client App
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/skills-lattice-client.env
+ExecStartPre=/usr/local/bin/skills-lattice-client-refresh-env
+ExecStart=/usr/bin/python3 /opt/skills-lattice/client/lattice-client-app.py
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

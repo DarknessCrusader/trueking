@@ -1,0 +1,16 @@
+[Unit]
+Description=Skills VPC Lattice Order Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=SERVICE_PORT=8080
+ExecStart=/usr/bin/python3 /opt/skills-lattice/service/lattice-order-service-app.py
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

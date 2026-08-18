@@ -1,0 +1,100 @@
+# # ============================================================
+# # sed 치환 명령어 (리소스 생성 후 실행)
+# # ============================================================
+# # VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=wsc2026-skills-vpc" --query "Vpcs[0].VpcId" --output text)
+# # PRIVATE_SUB_A=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=wsc2026-skills-app-sub-a" --query "Subnets[0].SubnetId" --output text)
+# # PRIVATE_SUB_B=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=wsc2026-skills-app-sub-b" --query "Subnets[0].SubnetId" --output text)
+# # EKS_KMS=$(aws kms describe-key --key-id alias/wsc2026-eks-kms --query "KeyMetadata.Arn" --output text)
+# #
+# # sed -i "s|VPC_ID|$VPC_ID|g" cluster.yaml
+# # sed -i "s|PRIVATE_SUB_A|$PRIVATE_SUB_A|g" cluster.yaml
+# # sed -i "s|PRIVATE_SUB_B|$PRIVATE_SUB_B|g" cluster.yaml
+# # sed -i "s|EKS KMS|$EKS_KMS|g" cluster.yaml
+# # ============================================================
+
+# apiVersion: eksctl.io/v1alpha5
+# kind: ClusterConfig
+
+# metadata:
+#   name: wsc2026-eks-cluster
+#   region: ap-northeast-2
+#   version: "1.35"
+
+# vpc:
+#   id: VPC_ID
+#   subnets:
+#     private:
+#       ap-northeast-2a:
+#         id: PRIVATE_SUB_A
+#       ap-northeast-2b:
+#         id: PRIVATE_SUB_B
+#   clusterEndpoints:
+#     privateAccess: true
+#     publicAccess: false
+
+# secretsEncryption:
+#   keyARN: EKS KMS
+
+# cloudWatch:
+#   clusterLogging:
+#     enableTypes:
+#       - api
+#       - audit
+#       - authenticator
+#       - controllerManager
+#       - scheduler
+
+# accessConfig:
+#   authenticationMode: API
+
+# iam:
+#   withOIDC: true
+#   serviceAccounts:
+#     - metadata:
+#         name: aws-load-balancer-controller
+#         namespace: kube-system
+#       wellKnownPolicies:
+#         awsLoadBalancerController: true
+
+# managedNodeGroups:
+#   - name: wsc2026-addon-nodegroup
+#     instanceType: t3.medium
+#     desiredCapacity: 2
+#     minSize: 2
+#     maxSize: 2
+#     privateNetworking: true
+#     labels:
+#       wsc2026/node: addon
+#     taints:
+#       - key: role
+#         value: addon
+#         effect: NoSchedule
+#     tags:
+#       Name: wsc2026-addon-node
+#     iam:
+#       withAddonPolicies:
+#         imageBuilder: true
+
+#   - name: wsc2026-workload-ng
+#     instanceType: t3.medium
+#     desiredCapacity: 2
+#     minSize: 2
+#     maxSize: 2
+#     privateNetworking: true
+#     labels:
+#       wsc2026/node: application
+#     taints:
+#       - key: role
+#         value: application
+#         effect: NoSchedule
+#     tags:
+#       Name: wsc2026-workload-node
+#     iam:
+#       withAddonPolicies:
+#         imageBuilder: true
+
+# addons:
+#   - name: vpc-cni
+#   - name: coredns
+#   - name: kube-proxy
+#   - name: eks-pod-identity-agent

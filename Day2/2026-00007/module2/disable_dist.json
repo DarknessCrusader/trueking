@@ -1,0 +1,115 @@
+{
+    "CallerReference": "terraform-20260713075220201000000001",
+    "Aliases": {
+        "Quantity": 0
+    },
+    "DefaultRootObject": "index.html",
+    "Origins": {
+        "Quantity": 1,
+        "Items": [
+            {
+                "Id": "s3-landing",
+                "DomainName": "skillsphone-landing-ab-586639730662.s3.us-east-1.amazonaws.com",
+                "OriginPath": "",
+                "CustomHeaders": {
+                    "Quantity": 0
+                },
+                "S3OriginConfig": {
+                    "OriginAccessIdentity": "",
+                    "OriginReadTimeout": 30
+                },
+                "ConnectionAttempts": 3,
+                "ConnectionTimeout": 10,
+                "OriginShield": {
+                    "Enabled": false
+                },
+                "OriginAccessControlId": "E3J8VUOE93QTQJ"
+            }
+        ]
+    },
+    "OriginGroups": {
+        "Quantity": 0
+    },
+    "DefaultCacheBehavior": {
+        "TargetOriginId": "s3-landing",
+        "TrustedSigners": {
+            "Enabled": false,
+            "Quantity": 0
+        },
+        "TrustedKeyGroups": {
+            "Enabled": false,
+            "Quantity": 0
+        },
+        "ViewerProtocolPolicy": "redirect-to-https",
+        "AllowedMethods": {
+            "Quantity": 2,
+            "Items": [
+                "HEAD",
+                "GET"
+            ],
+            "CachedMethods": {
+                "Quantity": 2,
+                "Items": [
+                    "HEAD",
+                    "GET"
+                ]
+            }
+        },
+        "SmoothStreaming": false,
+        "Compress": false,
+        "LambdaFunctionAssociations": {
+            "Quantity": 0
+        },
+        "FunctionAssociations": {
+            "Quantity": 2,
+            "Items": [
+                {
+                    "FunctionARN": "arn:aws:cloudfront::586639730662:function/skillsphone-cdn-ab-req-fn",
+                    "EventType": "viewer-request"
+                },
+                {
+                    "FunctionARN": "arn:aws:cloudfront::586639730662:function/skillsphone-cdn-ab-res-fn",
+                    "EventType": "viewer-response"
+                }
+            ]
+        },
+        "FieldLevelEncryptionId": "",
+        "CachePolicyId": "29a92eaf-5375-4812-b09e-cad5ed3e6192",
+        "ResponseHeadersPolicyId": "7eb2f224-f473-4fdf-9b85-996b7d4279ba",
+        "GrpcConfig": {
+            "Enabled": false
+        }
+    },
+    "CacheBehaviors": {
+        "Quantity": 0
+    },
+    "CustomErrorResponses": {
+        "Quantity": 0
+    },
+    "Comment": "skillsphone-cdn-ab-distribution",
+    "Logging": {
+        "Enabled": false,
+        "IncludeCookies": false,
+        "Bucket": "",
+        "Prefix": ""
+    },
+    "PriceClass": "PriceClass_All",
+    "Enabled": false,
+    "ViewerCertificate": {
+        "CloudFrontDefaultCertificate": true,
+        "SSLSupportMethod": "vip",
+        "MinimumProtocolVersion": "TLSv1",
+        "CertificateSource": "cloudfront"
+    },
+    "Restrictions": {
+        "GeoRestriction": {
+            "RestrictionType": "none",
+            "Quantity": 0
+        }
+    },
+    "WebACLId": "",
+    "HttpVersion": "http2",
+    "IsIPV6Enabled": false,
+    "ContinuousDeploymentPolicyId": "",
+    "Staging": false
+}

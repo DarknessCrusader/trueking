@@ -1,0 +1,28 @@
+# Terraform working directories
+.terraform/
+**/.terraform/
+
+# Terraform state
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Terraform plan files
+*.tfplan
+*.plan
+
+# Terraform lock file
+.terraform.lock.hcl
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform provider binaries (실수로 저장한 경우)
+terraform-provider-*
+hashicorp/
+
+.vscode/
