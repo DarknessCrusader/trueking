@@ -88,6 +88,13 @@ resource "aws_cloudfront_distribution" "this" {
   }
 
   tags = { Name = var.distribution_name }
+
+  # The ALB origin and /book* behavior are attached by setup.sh via the AWS CLI
+  # once the Ingress ALB exists. Ignore those so a later `terraform apply` does
+  # not tear them back out.
+  lifecycle {
+    ignore_changes = [origin, ordered_cache_behavior]
+  }
 }
 
 resource "aws_s3_bucket_policy" "cloudfront" {

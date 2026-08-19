@@ -89,8 +89,13 @@ spec:
         name: wskorea26-fluentbit
     spec:
       serviceAccountName: fluentbit-sa
-      nodeSelector:
-        node-type: addon
+      # Run on every node (addon + app) so book pod logs on the tainted app
+      # nodes are actually collected and shipped to CloudWatch Logs.
+      tolerations:
+      - key: dedicated
+        operator: Equal
+        value: app
+        effect: NoSchedule
       containers:
       - name: fluent-bit
         image: public.ecr.aws/aws-observability/aws-for-fluent-bit:latest

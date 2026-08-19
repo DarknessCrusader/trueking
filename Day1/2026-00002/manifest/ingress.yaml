@@ -36,20 +36,6 @@ metadata:
           }
         }
       ]
-    alb.ingress.kubernetes.io/transforms.book-svc: |
-      [
-        {
-          "type": "url-rewrite",
-          "urlRewriteConfig": {
-            "rewrites": [
-              {
-                "regex": "^/book(.*)$",
-                "replace": "/v1/book$1"
-              }
-            ]
-          }
-        }
-      ]
     alb.ingress.kubernetes.io/actions.book-get: |
       {
         "type": "forward",
@@ -92,14 +78,15 @@ spec:
   rules:
   - http:
       paths:
-      - path: /book
+      # CloudFront ALB origin uses OriginPath=/v1, so viewer "/book" arrives here as "/v1/book".
+      - path: /v1/book
         pathType: Prefix
         backend:
           service:
             name: book-svc
             port:
               number: 80
-      - path: /book
+      - path: /v1/book
         pathType: Prefix
         backend:
           service:

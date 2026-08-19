@@ -1,4 +1,42 @@
-*.sh text eol=lf
-*.yaml text eol=lf
-*.yml text eol=lf
-Dockerfile text eol=lf
+# Force LF for everything that runs on Linux (bastion / EKS / CloudShell / Lambda).
+# This is committed with the repo, so every clone gets LF regardless of each
+# machine's core.autocrlf setting. Prevents "\r: command not found" and eksctl/
+# kubectl YAML parse errors when scripts authored on Windows run on Linux.
+
+# Shell / manifests / deploy
+*.sh          text eol=lf
+*.bash        text eol=lf
+*.yaml        text eol=lf
+*.yml         text eol=lf
+Dockerfile    text eol=lf
+*.dockerfile  text eol=lf
+
+# Application / IaC source
+*.py          text eol=lf
+*.tf          text eol=lf
+*.tfvars      text eol=lf
+*.go          text eol=lf
+*.json        text eol=lf
+*.env         text eol=lf
+*.conf        text eol=lf
+*.cfg         text eol=lf
+*.ini         text eol=lf
+*.toml        text eol=lf
+
+# Docs
+*.md          text eol=lf
+*.txt         text eol=lf
+
+# Binaries — never touch (avoid corruption / accidental EOL conversion)
+*.jpg    binary
+*.jpeg   binary
+*.png    binary
+*.gif    binary
+*.pdf    binary
+*.zip    binary
+*.gz     binary
+*.tar    binary
+*.exe    binary
+*.dll    binary
+*.so     binary
+*.bin    binary
