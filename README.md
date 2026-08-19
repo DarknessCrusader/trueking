@@ -1,7 +1,5 @@
-# 2026 전국기능경기대회 40일 전 선정 과제
+# Notion
 
-| 순위 | 1과제 | 2과제 |
-| :---: | :--- | :--- |
-| **1위** | [클라우드컴퓨팅-2026-00002](https://github.com/Churious/Spruce/tree/master/Day1/2026-00002) (95점) | [클라우드컴퓨팅-2026-00002](https://github.com/Churious/Spruce/tree/master/Day2/2026-00002) (95점) |
-| **2위** | [클라우드컴퓨팅-2026-00007](https://github.com/Churious/Spruce/tree/master/Day1/2026-00007) (90점) | [클라우드컴퓨팅-2026-00007](https://github.com/Churious/Spruce/tree/master/Day2/2026-00007)<br>[클라우드컴퓨팅-2026-00008](https://github.com/Churious/Spruce/tree/master/Day2/2026-00008)<br>(공동 85점) |
-| **3위** | [클라우드컴퓨팅-2026-00003](https://github.com/Churious/Spruce/tree/master/Day1/2026-00003)<br>[클라우드컴퓨팅-2026-00006](https://github.com/Churious/Spruce/tree/master/Day1/2026-00006)<br>(공동 85점) | - |
+* [Notion 1](https://important-buckthorn-a4a.notion.site/17153c22ce424ab487b2be4d821ee16e?pvs=73)
+* [Notion 2](https://important-buckthorn-a4a.notion.site/29ff4705488480959e8ed803b51f88ed?v=29ff4705488480cdb6fc000c45c84b58&pvs=73)
+* [Cloud Computing](https://showy-bison-778.notion.site/Cloud-Computing-2dfc2d015ab6803dbcadfa0a33ed3931?pvs=73)
