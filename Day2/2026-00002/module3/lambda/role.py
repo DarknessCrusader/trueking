@@ -10,7 +10,7 @@ sns = boto3.client("sns")
 
 SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
 INSTANCE_ID = os.environ["INSTANCE_ID"]
-INSTANCE_PROFILE_NAME = os.environ["INSTANCE_PROFILE_NAME"]
+INSTANCE_PROFILE_NAME = os.environ["ROLE_NAME"]
 
 
 def now():

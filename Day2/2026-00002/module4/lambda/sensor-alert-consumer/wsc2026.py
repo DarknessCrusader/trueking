@@ -1,15 +1,33 @@
 import base64
 import json
 import os
-from datetime import datetime, timezone
 
 import boto3
+from kafka import KafkaProducer
+from kafka.sasl.oauth import AbstractTokenProvider
+from aws_msk_iam_sasl_signer import MSKAuthTokenProvider
+
+dynamodb = boto3.resource("dynamodb", region_name="ap-northeast-1")
+table = dynamodb.Table("wsc2026-sensor-data")
+AWS_REGION = "ap-northeast-1"
+BOOTSTRAP_SERVERS = os.environ["BOOTSTRAP_SERVERS"].split(",")
+ALERT_TOPIC = "wsc2026-sensor-alert"
 
 
-s3 = boto3.client("s3", region_name="ap-northeast-1")
+class MSKTokenProvider(AbstractTokenProvider):
+    def token(self):
+        token, _ = MSKAuthTokenProvider.generate_auth_token(AWS_REGION)
+        return token
 
-# Bucket name contains the contestant-specific number and remains configurable.
-S3_BUCKET = os.environ["S3_BUCKET"]
+
+producer = KafkaProducer(
+    bootstrap_servers=BOOTSTRAP_SERVERS,
+    security_protocol="SASL_SSL",
+    sasl_mechanism="OAUTHBEARER",
+    sasl_oauth_token_provider=MSKTokenProvider(),
+    key_serializer=lambda value: value.encode("utf-8"),
+    value_serializer=lambda value: json.dumps(value).encode("utf-8"),
+)
 
 
 def decode_record(record):
@@ -17,24 +35,48 @@ def decode_record(record):
     return json.loads(base64.b64decode(value).decode("utf-8"))
 
 
+def is_alert(data):
+    temperature = float(data["temperature"])
+    humidity = float(data["humidity"])
+    reasons = []
+
+    if temperature > 80:
+        reasons.append(f"temperature exceeded threshold: {temperature}")
+    if temperature < 10:
+        reasons.append(f"temperature below threshold: {temperature}")
+    if humidity > 90:
+        reasons.append(f"humidity exceeded threshold: {humidity}")
+    if humidity < 20:
+        reasons.append(f"humidity below threshold: {humidity}")
+
+    return reasons
+
+
 def consumer_handler(event, context):
     for records in event.get("records", {}).values():
         for record in records:
             data = decode_record(record)
-            sensor_id = data["sensorId"]
-            timestamp = data["timestamp"]
+            reasons = is_alert(data)
 
-            safe_timestamp = timestamp.replace(":", "-").replace("+", "_")
-            key = (
-                f"alert/{sensor_id}/"
-                f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}/"
-                f"{safe_timestamp}.json"
-            )
-            s3.put_object(
-                Bucket=S3_BUCKET,
-                Key=key,
-                Body=json.dumps(data, ensure_ascii=False).encode("utf-8"),
-                ContentType="application/json",
-            )
+            data["status"] = "ALERT" if reasons else "NORMAL"
 
-    return {"statusCode": 200, "body": "processed"}
+            if reasons:
+                data["alert_reason"] = "; ".join(reasons)
+                producer.send(
+                    ALERT_TOPIC,
+                    key=data["sensorId"],
+                    value=data,
+                ).get(timeout=10)
+
+            item = {
+                key: str(value) if isinstance(value, float) else value
+                for key, value in data.items()
+            }
+
+            table.put_item(Item=item)
+
+    producer.flush()
+    return {
+        "statusCode": 200,
+        "body": "processed",
+    }

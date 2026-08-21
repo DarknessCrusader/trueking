@@ -4,12 +4,12 @@ from datetime import datetime, timezone
 
 import boto3
 
-
 ec2 = boto3.client("ec2")
 sns = boto3.client("sns")
 
 SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
 INSTANCE_ID = os.environ["INSTANCE_ID"]
+SECURITY_GROUP_ID = os.environ.get("SECURITY_GROUP_ID", "")
 
 
 def now():
@@ -19,37 +19,34 @@ def now():
 def handler(event, context):
     print(json.dumps(event))
 
-    request = event.get("detail", {}).get("requestParameters", {})
-    event_instance_id = request.get("instanceId")
+    state = event.get("detail", {}).get("state", "")
 
-    if event_instance_id and event_instance_id != INSTANCE_ID:
-        return {"statusCode": 200, "body": "ignored"}
+    if state == "stopped":
+        # Restart the instance
+        ec2.start_instances(InstanceIds=[INSTANCE_ID])
 
-    response = ec2.describe_instance_attribute(
-        InstanceId=INSTANCE_ID,
-        Attribute="disableApiTermination"
-    )
-    enabled = response.get("DisableApiTermination", {}).get("Value", False)
+        # Remove all SG ingress rules
+        if SECURITY_GROUP_ID:
+            sg = ec2.describe_security_groups(GroupIds=[SECURITY_GROUP_ID])["SecurityGroups"][0]
+            ip_permissions = sg.get("IpPermissions", [])
+            if ip_permissions:
+                ec2.revoke_security_group_ingress(GroupId=SECURITY_GROUP_ID, IpPermissions=ip_permissions)
 
-    if enabled:
-        return {"statusCode": 200, "body": "already compliant"}
+        message = {
+            "event": "EC2_STOPPED",
+            "timestamp": now(),
+            "detail": f"Instance {INSTANCE_ID} restarted, SG cleaned",
+            "action": "RESTORED",
+        }
+    else:
+        # terminated - alert only
+        message = {
+            "event": "EC2_TERMINATED",
+            "timestamp": now(),
+            "detail": f"EC2 instance {INSTANCE_ID} has been terminated",
+            "action": "ALERT_ONLY",
+        }
 
-    ec2.modify_instance_attribute(
-        InstanceId=INSTANCE_ID,
-        DisableApiTermination={"Value": True}
-    )
-
-    message = {
-        "event": "TERMINATION_PROTECTION_DISABLED",
-        "timestamp": now(),
-        "detail": f"Termination protection restored on {INSTANCE_ID}",
-        "action": "RESTORED"
-    }
-    sns_response = sns.publish(
-        TopicArn=SNS_TOPIC_ARN,
-        Subject="EC2 termination protection restored",
-        Message=json.dumps(message)
-    )
-    print(json.dumps({"sns_publish": True, "function": "wsc2026-termination-protection-remediation", "topic": SNS_TOPIC_ARN}, ensure_ascii=False))
-    print(json.dumps({"snsMessageId": sns_response["MessageId"], "message": message}))
+    sns.publish(TopicArn=SNS_TOPIC_ARN, Subject="EC2 state change alert", Message=json.dumps(message))
+    print(json.dumps({"sns_publish": True, "message": message}))
     return {"statusCode": 200, "body": "completed"}

@@ -270,11 +270,8 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-resource "aws_iam_role_policy_attachment" "admin" {
-  role       = aws_iam_role.msk_ec2_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
-}
-
+# Least privilege: no AdministratorAccess. The producer only needs MSK discovery,
+# IAM data-plane produce/topic access (below) and S3 read for the app binary.
 resource "aws_iam_role_policy" "msk_producer" {
   name = "wsc2026-msk-producer-policy"
   role = aws_iam_role.msk_ec2_role.name
@@ -339,35 +336,63 @@ resource "aws_iam_role_policy_attachment" "lambda_vpc" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_dynamodb" {
-  role       = aws_iam_role.msk_lambda_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+# Least privilege: scoped inline policies instead of *FullAccess managed policies.
+# sensor-consumer only needs DynamoDB PutItem on the sensor table.
+resource "aws_iam_role_policy" "lambda_dynamodb" {
+  name = "wsc2026-msk-lambda-dynamodb"
+  role = aws_iam_role.msk_lambda_role.name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["dynamodb:PutItem"]
+      Resource = aws_dynamodb_table.sensor_data.arn
+    }]
+  })
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_s3" {
-  role       = aws_iam_role.msk_lambda_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+# sensor-alert-consumer only needs S3 PutObject on the alert bucket.
+resource "aws_iam_role_policy" "lambda_s3" {
+  name = "wsc2026-msk-lambda-s3"
+  role = aws_iam_role.msk_lambda_role.name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:PutObject"]
+      Resource = "${aws_s3_bucket.sensor_alert.arn}/*"
+    }]
+  })
 }
 
-resource "aws_iam_role_policy_attachment" "lambda_sns" {
-  role       = aws_iam_role.msk_lambda_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSNSFullAccess"
-}
-
+# MSK IAM data-plane, scoped to this cluster's cluster/topic/group ARNs only.
+# (Control-plane describe + ENI perms for the trigger come from AWSLambdaMSKExecutionRole.)
 resource "aws_iam_role_policy" "lambda_msk_data_plane" {
   name = "wsc2026-msk-lambda-data-plane"
   role = aws_iam_role.msk_lambda_role.name
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "kafka-cluster:*",
-        "kafka:*"
-      ]
-      Resource = "*"
-    }]
+    Statement = [
+      {
+        Sid      = "Connect"
+        Effect   = "Allow"
+        Action   = ["kafka-cluster:Connect", "kafka-cluster:DescribeCluster"]
+        Resource = aws_msk_cluster.sensor.arn
+      },
+      {
+        Sid      = "Topic"
+        Effect   = "Allow"
+        Action   = ["kafka-cluster:DescribeTopic", "kafka-cluster:ReadData", "kafka-cluster:WriteData"]
+        Resource = "${replace(aws_msk_cluster.sensor.arn, ":cluster/", ":topic/")}/*"
+      },
+      {
+        Sid      = "Group"
+        Effect   = "Allow"
+        Action   = ["kafka-cluster:DescribeGroup", "kafka-cluster:AlterGroup"]
+        Resource = "${replace(aws_msk_cluster.sensor.arn, ":cluster/", ":group/")}/*"
+      }
+    ]
   })
 }
 
@@ -422,6 +447,15 @@ resource "aws_instance" "sensor_producer" {
     TOPIC_RAW=wsc2026-sensor-raw
     ENV
     chmod 0600 /etc/wsc2026-sensor-producer.env
+
+    # Create required MSK topics (raw 3/2, alert 1/2) with IAM auth.
+    # Non-fatal + retrying so a transient failure never blocks the producer service.
+    set +e
+    dnf install -y python3-pip
+    pip3 install kafka-python==2.2.15 aws-msk-iam-sasl-signer-python==1.0.2
+    echo 'aW1wb3J0IG9zCmltcG9ydCB0aW1lCmZyb20ga2Fma2EuYWRtaW4gaW1wb3J0IEthZmthQWRtaW5DbGllbnQsIE5ld1RvcGljCmZyb20ga2Fma2EuZXJyb3JzIGltcG9ydCBUb3BpY0FscmVhZHlFeGlzdHNFcnJvcgpmcm9tIGthZmthLnNhc2wub2F1dGggaW1wb3J0IEFic3RyYWN0VG9rZW5Qcm92aWRlcgpmcm9tIGF3c19tc2tfaWFtX3Nhc2xfc2lnbmVyIGltcG9ydCBNU0tBdXRoVG9rZW5Qcm92aWRlcgoKUkVHSU9OID0gImFwLW5vcnRoZWFzdC0xIgpCT09UU1RSQVAgPSBvcy5lbnZpcm9uWyJCT09UU1RSQVBfU0VSVkVSUyJdLnNwbGl0KCIsIikKCgpjbGFzcyBUb2tlblByb3ZpZGVyKEFic3RyYWN0VG9rZW5Qcm92aWRlcik6CiAgICBkZWYgdG9rZW4oc2VsZik6CiAgICAgICAgdG9rZW4sIF8gPSBNU0tBdXRoVG9rZW5Qcm92aWRlci5nZW5lcmF0ZV9hdXRoX3Rva2VuKFJFR0lPTikKICAgICAgICByZXR1cm4gdG9rZW4KCgpUT1BJQ1MgPSBbCiAgICBOZXdUb3BpYygid3NjMjAyNi1zZW5zb3ItcmF3IiwgbnVtX3BhcnRpdGlvbnM9MywgcmVwbGljYXRpb25fZmFjdG9yPTIpLAogICAgTmV3VG9waWMoIndzYzIwMjYtc2Vuc29yLWFsZXJ0IiwgbnVtX3BhcnRpdGlvbnM9MSwgcmVwbGljYXRpb25fZmFjdG9yPTIpLApdCgpmb3IgYXR0ZW1wdCBpbiByYW5nZSgzMCk6CiAgICB0cnk6CiAgICAgICAgYWRtaW4gPSBLYWZrYUFkbWluQ2xpZW50KAogICAgICAgICAgICBib290c3RyYXBfc2VydmVycz1CT09UU1RSQVAsCiAgICAgICAgICAgIHNlY3VyaXR5X3Byb3RvY29sPSJTQVNMX1NTTCIsCiAgICAgICAgICAgIHNhc2xfbWVjaGFuaXNtPSJPQVVUSEJFQVJFUiIsCiAgICAgICAgICAgIHNhc2xfb2F1dGhfdG9rZW5fcHJvdmlkZXI9VG9rZW5Qcm92aWRlcigpLAogICAgICAgICkKICAgICAgICBmb3IgdG9waWMgaW4gVE9QSUNTOgogICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICBhZG1pbi5jcmVhdGVfdG9waWNzKFt0b3BpY10pCiAgICAgICAgICAgICAgICBwcmludCgiY3JlYXRlZCIsIHRvcGljLm5hbWUpCiAgICAgICAgICAgIGV4Y2VwdCBUb3BpY0FscmVhZHlFeGlzdHNFcnJvcjoKICAgICAgICAgICAgICAgIHByaW50KCJleGlzdHMiLCB0b3BpYy5uYW1lKQogICAgICAgIGFkbWluLmNsb3NlKCkKICAgICAgICBicmVhawogICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBleGM6CiAgICAgICAgcHJpbnQoInJldHJ5IiwgYXR0ZW1wdCwgZXhjKQogICAgICAgIHRpbWUuc2xlZXAoMTApCg==' | base64 -d > /opt/wsc2026-sensor-producer/create_topics.py
+    BOOTSTRAP_SERVERS='${aws_msk_cluster.sensor.bootstrap_brokers_sasl_iam}' python3 /opt/wsc2026-sensor-producer/create_topics.py
+    set -e
 
     cat > /etc/systemd/system/wsc2026-sensor-producer.service <<'SERVICE'
     [Unit]
@@ -513,8 +547,7 @@ resource "aws_lambda_function" "sensor_consumer" {
     aws_iam_role_policy_attachment.lambda_basic,
     aws_iam_role_policy_attachment.lambda_msk,
     aws_iam_role_policy_attachment.lambda_vpc,
-    aws_iam_role_policy_attachment.lambda_dynamodb,
-    aws_iam_role_policy_attachment.lambda_sns,
+    aws_iam_role_policy.lambda_dynamodb,
     aws_iam_role_policy.lambda_msk_data_plane
   ]
 }
@@ -542,8 +575,7 @@ resource "aws_lambda_function" "sensor_alert_consumer" {
     aws_iam_role_policy_attachment.lambda_basic,
     aws_iam_role_policy_attachment.lambda_msk,
     aws_iam_role_policy_attachment.lambda_vpc,
-    aws_iam_role_policy_attachment.lambda_s3,
-    aws_iam_role_policy_attachment.lambda_sns,
+    aws_iam_role_policy.lambda_s3,
     aws_iam_role_policy.lambda_msk_data_plane
   ]
 }

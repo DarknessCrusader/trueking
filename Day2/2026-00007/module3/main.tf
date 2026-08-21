@@ -394,7 +394,7 @@ resource "aws_s3_object" "app_files" {
 resource "aws_s3_object" "deploy_script" {
   bucket  = aws_s3_bucket.bastion.id
   key     = "scripts/setup.sh"
-  content = templatefile("${path.module}/deploy.sh.tpl", {
+  content = replace(templatefile("${path.module}/deploy.sh.tpl", {
     region             = local.region
     cluster            = aws_eks_cluster.main.name
     account_id         = data.aws_caller_identity.current.account_id
@@ -407,7 +407,7 @@ resource "aws_s3_object" "deploy_script" {
     sqs_url            = aws_sqs_queue.order.url
     s3_bucket          = aws_s3_bucket.bastion.bucket
     discovery_tag      = local.discovery_tag
-  })
+  }), "\r\n", "\n")
 }
 
 ###############################################################################
@@ -509,11 +509,11 @@ resource "aws_instance" "bastion" {
   iam_instance_profile        = aws_iam_instance_profile.bastion.name
   associate_public_ip_address = true
 
-  user_data = base64encode(templatefile("${path.module}/setup.sh.tpl", {
+  user_data = base64encode(replace(templatefile("${path.module}/setup.sh.tpl", {
     region    = local.region
     cluster   = aws_eks_cluster.main.name
     s3_bucket = aws_s3_bucket.bastion.bucket
-  }))
+  }), "\r\n", "\n"))
 
   user_data_replace_on_change = true
   tags                        = { Name = "skm-bastion" }

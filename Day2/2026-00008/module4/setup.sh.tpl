@@ -167,7 +167,7 @@ metadata:
   namespace: skills-sqs
 spec:
   podIdentity:
-    provider: aws
+    provider: aws-eks
 EOF
 
 retry 5 kubectl apply -f - <<'EOF'

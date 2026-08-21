@@ -66,7 +66,7 @@ def consumer_handler(event, context):
                 producer.send(ALERT_TOPIC, key=data["sensorId"], value=data).get(timeout=10)
 
             item = {
-                key: Decimal(str(value)) if isinstance(value, float) else value
+                key: str(value) if isinstance(value, float) else value
                 for key, value in data.items()
             }
             table.put_item(Item=item)

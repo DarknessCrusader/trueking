@@ -10,7 +10,7 @@ sns = boto3.client("sns")
 
 SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
 INSTANCE_ID = os.environ["INSTANCE_ID"]
-EXPECTED_INSTANCE_TYPE = os.environ.get("EXPECTED_INSTANCE_TYPE", "t3.micro")
+EXPECTED_INSTANCE_TYPE = os.environ.get("INSTANCE_TYPE", "t3.micro")
 
 
 def now():

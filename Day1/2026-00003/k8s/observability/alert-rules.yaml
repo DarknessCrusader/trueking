@@ -1,9 +1,9 @@
     groups:
       - name: pod-alerts
         rules:
-          - alert: PodHighCPU
-            expr: (rate(container_cpu_usage_seconds_total{namespace="wsc2026", container!=""}[5m]) / on(namespace, pod, container) kube_pod_container_resource_limits{namespace="wsc2026", resource="cpu"}) * 100 > 80
-            for: 1m
+        - alert: PodHighCPU
+          expr: (rate(container_cpu_usage_seconds_total{namespace="wsc2026", container!=""}[2m]) / on(namespace, pod, container) kube_pod_container_resource_limits{namespace="wsc2026", resource="cpu"}) * 100 > 80
+          for: 0m
             labels:
               severity: warning
             annotations:

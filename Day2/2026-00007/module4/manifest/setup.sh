@@ -421,3 +421,16 @@ echo ""
 echo "=== Done! ==="
 kubectl get pods -n o11y
 kubectl get pods -n monitoring
+
+echo "=== Generating sample logs (all levels) ==="
+APP_ALB=$(aws elbv2 describe-load-balancers --names o11y-app-alb --query 'LoadBalancers[0].DNSName' --output text --region $REGION)
+for i in $(seq 1 12); do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" "http://${APP_ALB}/healthz")
+  [ "$HTTP" = "200" ] && break
+  sleep 10
+done
+curl -s "http://${APP_ALB}/log?level=info&count=20"
+curl -s "http://${APP_ALB}/log?level=warn&count=10"
+curl -s "http://${APP_ALB}/log?level=error&count=10"
+echo ""
+echo "=== Sample logs generated (INFO:20 WARN:10 ERROR:10) ==="
