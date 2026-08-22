@@ -5,6 +5,22 @@ echo "Task 1 Marking"
 # export AWS_SECRET_ACCESS_KEY=""
 # rm -rf ~/.aws
 # aws sts get-caller-identity | jq .Account
+
+read -r -p "채점 전 kubectl-connect 또는 update-kubeconfig를 실행하고 선수 등번호를 number 환경변수로 설정했습니까? [y/N] " SETUP_READY
+case "${SETUP_READY:-N}" in
+  y|Y|yes|YES)
+    ;;
+  *)
+    echo "kubectl 연결과 'export number=<선수등번호>' 설정 후 채점 스크립트를 다시 실행하세요."
+    exit 1
+    ;;
+esac
+
+if [ -z "${number:-}" ]; then
+  echo "선수 등번호가 설정되지 않았습니다. 'export number=<선수등번호>' 실행 후 다시 시도하세요."
+  exit 1
+fi
+
 echo "채점준비 끝! 채점 시작!"
 
 echo "=== 1-1-A ==="
@@ -129,9 +145,19 @@ aws logs filter-log-events --log-group-name /unicorn/eks/book-app --start-time $
 echo "=== 12-2-A ==="
 CF=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='unicorn-svc-cf'].DomainName | [0]" --output text)
 sleep 60
-for i in $(seq 1 100); do curl -s -o /dev/null "https://$CF/health"; done
-sleep 30
-curl -s -o /dev/null -w "%{http_code}\n" "https://$CF/health"
+for batch in $(seq 1 5); do
+  for request in $(seq 1 50); do
+    curl -s -o /dev/null --max-time 3 "https://$CF/health" &
+  done
+  wait
+done >/dev/null 2>&1
+RATE_CODE=000
+for attempt in $(seq 1 12); do
+  RATE_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "https://$CF/health")
+  [ "$RATE_CODE" = "403" ] && break
+  sleep 5
+done
+echo "$RATE_CODE"
 curl -s "https://$CF/health"
 
 echo "=== 13-1-A ==="

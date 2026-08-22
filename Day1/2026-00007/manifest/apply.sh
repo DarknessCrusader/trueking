@@ -1,7 +1,7 @@
 #!/bin/bash
 set -x
 export NUMBER=${NUMBER:-103}
-export MARK_USER=${MARK_USER:-admin}
+export MARK_USER=${MARK_USER:-$(aws sts get-caller-identity --query 'Arn' --output text | awk -F'/' '{print $NF}')}
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 REGION=ap-northeast-2
 WORKDIR=$(pwd)

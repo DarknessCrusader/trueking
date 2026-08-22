@@ -422,6 +422,9 @@ locals {
   current_user_name = element(split("/", data.aws_caller_identity.current.arn), length(split("/", data.aws_caller_identity.current.arn)) - 1)
 }
 
+# Trust policy is :root, so any user with sts:AssumeRole can assume.
+# This policy ensures the terraform-deploying user can assume it.
+# In exam environment, the marking user typically has AdministratorAccess.
 resource "aws_iam_user_policy" "allow_assume_audit" {
   name = "AllowAssumeAuditRole"
   user = local.current_user_name

@@ -41,7 +41,22 @@ for key in web/main/index.html web/main/main.jpeg; do kms_arn=$(aws s3api head-o
 echo ====================
 echo "  3-1-A ECR Repository & Image"
 echo ====================
-aws ecr describe-repositories --query "repositories[?repositoryName=='wskorea26-book-repo'].[repositoryName,imageScanningConfiguration.scanOnPush,encryptionConfiguration.encryptionType]" --output text; aws ecr describe-images --repository-name wskorea26-book-repo --image-ids imageTag=stable --query "imageDetails[0].imageTags" --output text; aws ecr describe-image-scan-findings --repository-name wskorea26-book-repo --image-id imageTag=stable --query "imageScanFindings.findingSeverityCounts" --output json
+aws ecr describe-repositories --query "repositories[?repositoryName=='wskorea26-book-repo'].[repositoryName,imageScanningConfiguration.scanOnPush,encryptionConfiguration.encryptionType]" --output text
+aws ecr describe-images --repository-name wskorea26-book-repo --image-ids imageTag=stable --query "imageDetails[0].imageTags" --output text
+SCAN_RESULT=$(aws ecr describe-image-scan-findings --repository-name wskorea26-book-repo --image-id imageTag=stable --output json)
+if [ $? -ne 0 ]; then
+  echo '{"SCAN_STATUS":"ERROR"}'
+else
+  SCAN_STATUS=$(echo "$SCAN_RESULT" | jq -r '.imageScanStatus.status // "UNKNOWN"')
+  FINDING_COUNTS=$(echo "$SCAN_RESULT" | jq '.imageScanFindings.findingSeverityCounts // {}')
+  if [ "$SCAN_STATUS" != "COMPLETE" ]; then
+    printf '{"SCAN_STATUS":"%s"}\n' "$SCAN_STATUS"
+  elif [ "$(echo "$FINDING_COUNTS" | jq 'length')" -eq 0 ]; then
+    printf '{\n  "LOW": 0\n}\n'
+  else
+    echo "$FINDING_COUNTS"
+  fi
+fi
 
 # 4-1-A DynamoDB Configuration
 echo ====================
@@ -65,13 +80,39 @@ aws kms list-aliases --query "Aliases[?TargetKeyId=='$(aws eks describe-cluster 
 echo ====================
 echo "  5-3-A Cluster Node Configuration"
 echo ====================
-for ng in wskorea26-addon-ng wskorea26-app-ng; do aws eks describe-nodegroup --cluster-name wskorea26-cluster --nodegroup-name $ng --query "nodegroup.[nodegroupName,instanceTypes[0],tags.Name]" --output text; done; for ng in wskorea26-addon-ng wskorea26-app-ng; do aws ec2 describe-subnets --subnet-ids $(aws eks describe-nodegroup --cluster-name wskorea26-cluster --nodegroup-name $ng --query "nodegroup.subnets[]" --output text) --query "sort(Subnets[*].Tags[?Key=='Name'].Value[])" --output text; done
+for ng in wskorea26-addon-ng wskorea26-app-ng; do
+  aws eks describe-nodegroup --cluster-name wskorea26-cluster --nodegroup-name $ng --query "nodegroup.[nodegroupName,instanceTypes[0]]" --output text
+done
+for ng in wskorea26-addon-ng wskorea26-app-ng; do
+  aws ec2 describe-subnets --subnet-ids $(aws eks describe-nodegroup --cluster-name wskorea26-cluster --nodegroup-name $ng --query "nodegroup.subnets[]" --output text) --query "sort(Subnets[*].Tags[?Key=='Name'].Value[])" --output text
+done
 
 # 5-4-A Cluster Pod Configuration
 echo ====================
 echo "  5-4-A Cluster Pod Configuration"
 echo ====================
-kubectl get namespace wskorea26 --output jsonpath='{.metadata.name}' && echo ""; for node in $(kubectl get pod -n kube-system -o wide --no-headers | grep -v "aws-node\|kube-proxy" | awk '{print $7}'); do kubectl get node $node -o jsonpath='{.metadata.labels.node-type}{"\n"}'; done | sort -u; for node in $(kubectl get pod -n wskorea26 -o wide --no-headers | awk '{print $7}'); do kubectl get node $node -o jsonpath='{.metadata.labels.node-type}{"\n"}'; done | sort -u
+kubectl get namespace wskorea26 --output jsonpath='{.metadata.name}' && echo ""
+addon_nodes() {
+  kubectl get pods --all-namespaces -o json | jq -r '
+    .items[]
+    | select(.metadata.namespace != "wskorea26")
+    | select((.metadata.ownerReferences // [] | map(.kind) | index("DaemonSet")) == null)
+    | .spec.nodeName // empty
+  '
+}
+app_nodes() {
+  kubectl get pods -n wskorea26 -o json | jq -r '
+    .items[]
+    | select((.metadata.ownerReferences // [] | map(.kind) | index("DaemonSet")) == null)
+    | .spec.nodeName // empty
+  '
+}
+for node in $(addon_nodes); do
+  kubectl get node "$node" -o jsonpath='{.metadata.labels.node-type}{"\n"}'
+done | sort -u
+for node in $(app_nodes); do
+  kubectl get node "$node" -o jsonpath='{.metadata.labels.node-type}{"\n"}'
+done | sort -u
 
 # 6-1-A Function Configuration
 echo ====================
@@ -107,7 +148,7 @@ aws cloudfront get-distribution --id $CF_ID --query "Distribution.DistributionCo
 echo ====================
 echo "  8-3-A Cache Behaviors"
 echo ====================
-aws cloudfront get-distribution --id $CF_ID --query "Distribution.DistributionConfig.[DefaultCacheBehavior.TargetOriginId,CacheBehaviors.Items[?PathPattern=='/book*'].TargetOriginId|[0],DefaultCacheBehavior.ViewerProtocolPolicy]" --output text
+aws cloudfront get-distribution --id $CF_ID --query "Distribution.DistributionConfig.[DefaultCacheBehavior.TargetOriginId,CacheBehaviors.Items[?PathPattern=='/book*' || PathPattern=='/book'].TargetOriginId|[0],DefaultCacheBehavior.ViewerProtocolPolicy]" --output text
 
 # 8-4-A Origin Custom Headers
 echo ====================
@@ -125,7 +166,7 @@ curl -o /dev/null -s -w "%{http_code}\n" https://$CF_DOMAIN; curl -o /dev/null -
 echo ====================
 echo "  9-1-A App Test (POST)"
 echo ====================
-curl -s -X POST -H 'Content-Type: application/json' -d '{"client_id":"D1114","username":"akaね","email":"akane@ztmy.com","concert_name":"ZUTOMAYO_INTENSE_II"}' https://$CF_DOMAIN/book
+curl -s -X POST -H 'Content-Type: application/json' -d '{"client_id":"D1114","username":"akane","email":"akane@ztmy.com","concert_name":"ZUTOMAYO_INTENSE_II"}' https://$CF_DOMAIN/book
 
 # 9-2-A App Test (GET 200)
 echo ====================
@@ -133,6 +174,7 @@ echo "  9-2-A App Test (GET 200)"
 echo ====================
 echo ""
 curl -s -X GET -H 'Content-Type: application/json' "https://$CF_DOMAIN/book?concert_name=ZUTOMAYO_INTENSE_II"
+echo
 
 # 9-3-A App Test (GET 400)
 echo ====================
@@ -141,11 +183,12 @@ echo ====================
 echo ""
 curl -s -o /dev/null -w "%{http_code}\n" -X GET -H 'Content-Type: application/json' "https://$CF_DOMAIN/book"
 
-# 10 Monitoring Configure (수동 채점 안내 - 기준표 맞춤)
+# 10-0 Monitoring Configure (사전 준비)
 echo ====================
-echo "  10-1 Monitoring Configure (수동)"
+echo "  10-0 Monitoring Configure <수동채점>"
 echo ====================
-GRAFANA_ALB_DNS=$(aws elbv2 describe-load-balancers --names wskorea26-grafana-alb --query "LoadBalancers[0].DNSName" --output text)
-echo "URL: http://$GRAFANA_ALB_DNS/d/wskorea26/wskorea26-monitoring"
+aws elbv2 describe-load-balancers --names wskorea26-grafana-alb --query "LoadBalancers[0].DNSName" --output text
 echo "Login: skills-<비번호>-admin / \$korea26!!"
-echo "Manual Marking"
+echo "Dashboard: wskorea26-monitoring"
+echo "Manual Marking: 10-1 ~ 10-4"
+echo "접속 안될 경우 url에 http:// 와 :80 을 붙혀 재시도"

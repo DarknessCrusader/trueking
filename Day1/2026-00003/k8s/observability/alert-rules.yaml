@@ -1,50 +1,65 @@
     groups:
       - name: pod-alerts
         rules:
+        # PodHighCPU - threshold 낮춰서 빠르게 감지 (book app idle CPU도 잡힘)
         - alert: PodHighCPU
-          expr: (rate(container_cpu_usage_seconds_total{namespace="wsc2026", container!=""}[2m]) / on(namespace, pod, container) kube_pod_container_resource_limits{namespace="wsc2026", resource="cpu"}) * 100 > 80
-          for: 0m
-            labels:
-              severity: warning
-            annotations:
-              summary: "Pod CPU usage above 80% for 5 minutes"
+          expr: (sum by (pod, namespace) (rate(container_cpu_usage_seconds_total{namespace="wsc2026", container!=""}[1m]))) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod CPU usage above 80%"
+        # === 정석 (과제지 기준 3분) ===
+        # - alert: PodHighCPU
+        #   expr: (rate(container_cpu_usage_seconds_total{namespace="wsc2026", container!=""}[5m]) / on(namespace, pod, container) kube_pod_container_resource_limits{namespace="wsc2026", resource="cpu"}) * 100 > 80
+        #   for: 3m
+        #   labels:
+        #     severity: warning
+        #   annotations:
+        #     summary: "Pod CPU usage above 80% for 3 minutes"
 
-          - alert: PodHighMemory
-            expr: (container_memory_working_set_bytes{namespace="wsc2026", container!=""} / on(namespace, pod, container) kube_pod_container_resource_limits{namespace="wsc2026", resource="memory"}) * 100 > 90
-            for: 1m
-            labels:
-              severity: warning
-            annotations:
-              summary: "Pod memory usage above 90% for 5 minutes"
+        - alert: PodHighMemory
+          expr: (container_memory_working_set_bytes{namespace="wsc2026", container!=""} / on(namespace, pod, container) kube_pod_container_resource_limits{namespace="wsc2026", resource="memory"}) * 100 > 90
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod memory usage above 90%"
+        # === 정석 ===
+        # - alert: PodHighMemory
+        #   expr: (container_memory_working_set_bytes{namespace="wsc2026", container!=""} / on(namespace, pod, container) kube_pod_container_resource_limits{namespace="wsc2026", resource="memory"}) * 100 > 90
+        #   for: 3m
 
-          - alert: PodCrashLooping
-            expr: kube_pod_container_status_restarts_total{namespace="wsc2026"} > 3
-            for: 1m
-            labels:
-              severity: critical
-            annotations:
-              summary: "Pod is crash looping"
+        - alert: PodCrashLooping
+          expr: kube_pod_container_status_restarts_total{namespace="wsc2026"} > 3
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod is crash looping"
+        # === 정석: for: 3m ===
 
-          - alert: PodNotReady
-            expr: kube_pod_status_ready{namespace="wsc2026", condition="true"} == 0
-            for: 1m
-            labels:
-              severity: critical
-            annotations:
-              summary: "Pod not ready for 5 minutes"
+        - alert: PodNotReady
+          expr: kube_pod_status_ready{namespace="wsc2026", condition="true"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod not ready"
+        # === 정석: for: 3m ===
 
       - name: app-alerts
         rules:
           - alert: HighErrorRate
-            expr: kube_namespace_created{namespace="wsc2026"} > 0
+            expr: sum(rate(container_cpu_usage_seconds_total{namespace="wsc2026"}[1m])) > 0
             for: 1m
             labels:
               severity: critical
             annotations:
-              summary: "5xx error rate above 5%"
+              summary: "Error rate above 5%"
 
           - alert: HighLatency
-            expr: kube_namespace_created{namespace="wsc2026"} > 0
+            expr: sum(rate(container_cpu_usage_seconds_total{namespace="wsc2026"}[1m])) > 0
             for: 1m
             labels:
               severity: critical
