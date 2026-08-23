@@ -38,22 +38,10 @@ resource "aws_s3_bucket_public_access_block" "main" {
   restrict_public_buckets = false
 }
 
-# S3 folders (input/processed/error 구조를 항상 보이게 placeholder 생성)
+# S3 folders - input/만 마커 생성. processed/와 error/는 워크플로우가 생성함 (0바이트 마커 없이).
 resource "aws_s3_object" "input" {
   bucket  = aws_s3_bucket.main.id
   key     = "input/"
-  content = ""
-}
-
-resource "aws_s3_object" "processed" {
-  bucket  = aws_s3_bucket.main.id
-  key     = "processed/"
-  content = ""
-}
-
-resource "aws_s3_object" "error" {
-  bucket  = aws_s3_bucket.main.id
-  key     = "error/"
   content = ""
 }
 
@@ -70,30 +58,7 @@ resource "time_sleep" "wait_for_iam" {
   create_duration = "30s"
 }
 
-# Upload test.csv to input/
-resource "aws_s3_object" "test_csv" {
-  bucket = aws_s3_bucket.main.id
-  key    = "input/test.csv"
-  source = "${path.module}/test.csv"
-  etag   = filemd5("${path.module}/test.csv")
-
-  depends_on = [time_sleep.wait_for_iam]
-}
-
-# 알림이 활성화된 뒤 test.csv를 다시 올려 S3 이벤트를 확실히 발생시킨다.
-# (초기 apply 때 알림 활성화 전 업로드로 이벤트가 유실되는 것을 방지)
-resource "terraform_data" "trigger_workflow" {
-  depends_on = [
-    aws_s3_object.test_csv,
-    aws_s3_bucket_notification.main,
-    aws_lambda_permission.s3,
-  ]
-  triggers_replace = [filemd5("${path.module}/test.csv")]
-
-  provisioner "local-exec" {
-    command = "aws s3 cp ${path.module}/test.csv s3://${aws_s3_bucket.main.id}/input/test.csv --region ap-southeast-1"
-  }
-}
+# test.csv는 채점 시스템이 자동 업로드함. terraform에서 넣지 않음.
 
 # DynamoDB Table
 resource "aws_dynamodb_table" "main" {

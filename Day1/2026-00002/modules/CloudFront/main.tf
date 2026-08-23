@@ -79,6 +79,28 @@ resource "aws_cloudfront_distribution" "this" {
     }
   }
 
+  dynamic "ordered_cache_behavior" {
+    for_each = var.api_origin_enabled && var.api_origin_domain_name != "" ? [1] : []
+
+    content {
+      path_pattern           = "/reserv-query*"
+      allowed_methods        = ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]
+      cached_methods         = ["GET", "HEAD"]
+      target_origin_id       = var.alb_origin_id
+      viewer_protocol_policy = "redirect-to-https"
+
+      forwarded_values {
+        query_string = true
+        headers      = ["*"]
+        cookies { forward = "all" }
+      }
+
+      min_ttl     = 0
+      default_ttl = 0
+      max_ttl     = 0
+    }
+  }
+
   restrictions {
     geo_restriction { restriction_type = "none" }
   }

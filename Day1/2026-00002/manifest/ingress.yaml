@@ -93,6 +93,13 @@ spec:
             name: book-get
             port:
               name: use-annotation
+      - path: /v1/reserv-query
+        pathType: Prefix
+        backend:
+          service:
+            name: book-get
+            port:
+              name: use-annotation
       - path: /*
         pathType: ImplementationSpecific
         backend:

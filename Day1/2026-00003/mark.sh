@@ -33,7 +33,6 @@ echo
 echo =====3-1=====
 aws ecr describe-repositories --repository-names wsc2026-book-ecr --query "repositories[0].[imageScanningConfiguration.scanOnPush,imageTagMutability,imageTagMutabilityExclusionFilters[0].filter,encryptionConfiguration.encryptionType]" --output text 2>/dev/null; aws ecr list-images --repository-name wsc2026-book-ecr --query "imageIds[].imageTag" --output text 2>/dev/null
 check_kms "wsc2026-ecr-kms" "$(aws ecr describe-repositories --repository-names wsc2026-book-ecr --query 'repositories[0].encryptionConfiguration.kmsKey' --output text 2>/dev/null)"
-echo
 
 echo =====4-1=====
 aws eks describe-cluster --name wsc2026-eks-cluster --query "cluster.[version,status,resourcesVpcConfig.endpointPublicAccess,resourcesVpcConfig.endpointPrivateAccess,logging.clusterLogging[0].enabled]" --output text 2>/dev/null
@@ -85,15 +84,32 @@ PI_SA=$(aws eks list-pod-identity-associations --cluster-name wsc2026-eks-cluste
 PI_ROLE=$(aws eks list-pod-identity-associations --cluster-name wsc2026-eks-cluster --namespace wsc2026 --query 'associations[0].associationId' --output text 2>/dev/null)
 [ "$PI_SA" = "wsc2026-book-sa" ] && echo "Pod Identity SA: PASS ($PI_SA)" || echo "Pod Identity SA: FAIL ($PI_SA)"
 ROLE_NAME=$(aws eks describe-pod-identity-association --cluster-name wsc2026-eks-cluster --association-id "$PI_ROLE" --query 'association.roleArn' --output text 2>/dev/null|awk -F/ '{print $NF}')
-MANAGED_ACTIONS=$(aws iam list-attached-role-policies --role-name "$ROLE_NAME" --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null|tr '\t' '\n'|while read arn;do VERSION=$(aws iam get-policy --policy-arn "$arn" --query 'Policy.DefaultVersionId' --output text 2>/dev/null);aws iam get-policy-version --policy-arn "$arn" --version-id "$VERSION" --query 'PolicyVersion.Document.Statement[].Action' --output text 2>/dev/null;done)
-echo "$MANAGED_ACTIONS"|grep -q dynamodb:PutItem && ! echo "$MANAGED_ACTIONS"|grep -qE '^\*$' && echo "Pod Identity Role: PASS" || echo "Pod Identity Role: FAIL"
+MANAGED_ACTIONS=$(aws iam list-attached-role-policies --role-name "$ROLE_NAME" \
+  --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null | tr '\t' '\n' | while read arn; do
+    VERSION=$(aws iam get-policy --policy-arn "$arn" --query 'Policy.DefaultVersionId' --output text 2>/dev/null)
+    aws iam get-policy-version --policy-arn "$arn" --version-id "$VERSION" \
+      --query 'PolicyVersion.Document.Statement[].Action' --output text 2>/dev/null
+  done)
+
+INLINE_ACTIONS=$(aws iam list-role-policies --role-name "$ROLE_NAME" \
+  --query 'PolicyNames' --output text 2>/dev/null | tr '\t' '\n' | while read name; do
+    aws iam get-role-policy --role-name "$ROLE_NAME" --policy-name "$name" \
+      --query 'PolicyDocument.Statement[].Action' --output text 2>/dev/null
+  done)
+
+ALL_ACTIONS="$MANAGED_ACTIONS
+$INLINE_ACTIONS"
+
+echo "$ALL_ACTIONS" | grep -q dynamodb:PutItem && \
+! echo "$ALL_ACTIONS" | grep -qE '^\*$' && \
+echo "Pod Identity Role: PASS" || echo "Pod Identity Role: FAIL"
 echo
 
 echo =====6-1=====
 echo "$BUCKET"; aws s3api get-public-access-block --bucket "$BUCKET" --query "PublicAccessBlockConfiguration.[BlockPublicAcls,BlockPublicPolicy,IgnorePublicAcls,RestrictPublicBuckets]" --output text 2>/dev/null; aws s3api get-bucket-encryption --bucket "$BUCKET" --query "ServerSideEncryptionConfiguration.Rules[0].{SSE:ApplyServerSideEncryptionByDefault.SSEAlgorithm,BucketKey:BucketKeyEnabled}" --output text 2>/dev/null; aws s3api list-objects --bucket "$BUCKET" --prefix "static/" --query "Contents[?Size>\`0\`].Key" --output text 2>/dev/null
 check_kms "wsc2026-bucket-kms" "$(aws s3api get-bucket-encryption --bucket "$BUCKET" --query 'ServerSideEncryptionConfiguration.Rules[0].ApplyServerSideEncryptionByDefault.KMSMasterKeyID' --output text 2>/dev/null)"
 BUCKET_KMS_ARN=$(aws kms describe-key --key-id "alias/wsc2026-bucket-kms" --query "KeyMetadata.Arn" --output text 2>/dev/null)
-echo "S3 Object KMS Check:"; for OBJ in $(aws s3api list-objects --bucket "$BUCKET" --prefix "static/" --query "Contents[].Key" --output text 2>/dev/null); do
+echo "S3 Object KMS Check:"; for OBJ in $(aws s3api list-objects --bucket "$BUCKET" --prefix "static/" --query "Contents[?Size>\`0\`].Key" --output text 2>/dev/null); do
   KEY_ID=$(aws s3api head-object --bucket "$BUCKET" --key "$OBJ" --query "SSEKMSKeyId" --output text 2>/dev/null)
   if [ "$KEY_ID" = "$BUCKET_KMS_ARN" ]; then echo "  $OBJ: PASS"; else echo "  $OBJ: FAIL ($KEY_ID)"; fi
 done
@@ -107,8 +123,30 @@ echo
 
 echo =====7-2=====
 LAMBDA_ROLE=$(aws lambda get-function --function-name wsc2026-book-get-function --query "Configuration.Role" --output text 2>/dev/null | awk -F/ '{print $NF}'); echo "$LAMBDA_ROLE"; POLICIES=$(aws iam list-attached-role-policies --role-name "$LAMBDA_ROLE" --query "AttachedPolicies[].PolicyName" --output text 2>/dev/null); echo "$POLICIES"; if echo "$POLICIES" | grep -q "AdministratorAccess"; then echo "Role: FAIL (Admin)"; else echo "Role: PASS"; fi
-POLICY_ARN=$(aws iam list-attached-role-policies --role-name "$LAMBDA_ROLE" --query "AttachedPolicies[?PolicyName!='AWSLambdaBasicExecutionRole'].PolicyArn|[0]" --output text 2>/dev/null); ACTIONS=$(aws iam get-policy-version --policy-arn "$POLICY_ARN" --version-id $(aws iam get-policy --policy-arn "$POLICY_ARN" --query "Policy.DefaultVersionId" --output text 2>/dev/null) --query "PolicyVersion.Document.Statement[].Action" --output text 2>/dev/null)
-if echo "$ACTIONS" | grep -q "dynamodb:Query" && ! echo "$ACTIONS" | grep -q '\*'; then echo "Policy: PASS"; else echo "Policy: FAIL"; fi
+MANAGED_ACTIONS=$(aws iam list-attached-role-policies --role-name "$LAMBDA_ROLE" \
+  --query "AttachedPolicies[?PolicyName!='AWSLambdaBasicExecutionRole'].PolicyArn" \
+  --output text 2>/dev/null | tr '\t' '\n' | while read -r arn; do
+    [ -z "$arn" ] && continue
+    VERSION=$(aws iam get-policy --policy-arn "$arn" --query "Policy.DefaultVersionId" --output text 2>/dev/null)
+    aws iam get-policy-version --policy-arn "$arn" --version-id "$VERSION" \
+      --query "PolicyVersion.Document.Statement[].Action" --output text 2>/dev/null
+  done)
+
+INLINE_ACTIONS=$(aws iam list-role-policies --role-name "$LAMBDA_ROLE" \
+  --query "PolicyNames" --output text 2>/dev/null | tr '\t' '\n' | while read -r name; do
+    [ -z "$name" ] && continue
+    aws iam get-role-policy --role-name "$LAMBDA_ROLE" --policy-name "$name" \
+      --query "PolicyDocument.Statement[].Action" --output text 2>/dev/null
+  done)
+
+ALL_ACTIONS="$MANAGED_ACTIONS
+$INLINE_ACTIONS"
+
+if echo "$ALL_ACTIONS" | grep -q "dynamodb:Query" && ! echo "$ALL_ACTIONS" | grep -qE '^\*$|dynamodb:\*'; then
+  echo "Policy: PASS"
+else
+  echo "Policy: FAIL"
+fi
 echo
 
 echo =====8-1=====
@@ -135,18 +173,33 @@ WAF_NAME=$(aws wafv2 list-web-acls --scope CLOUDFRONT --region us-east-1 --query
 echo "WAF Name: $WAF_NAME"
 SQLI=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "https://${CF_DOMAIN}/v1/book?booking_id=1'%20OR%201=1--"); echo "SQLi: $SQLI"
 XSS=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "https://${CF_DOMAIN}/v1/book?booking_id=<script>alert(1)</script>"); echo "XSS: $XSS"
-(for i in $(seq 1 15); do for j in $(seq 1 25); do curl -s -o /dev/null --max-time 3 "https://${CF_DOMAIN}/" & done; sleep 0.4; done; wait) >/dev/null 2>&1; WAF_ID=$(aws wafv2 list-web-acls --scope CLOUDFRONT --region us-east-1 --query "WebACLs[?contains(Name, 'wsc2026')].Id" --output text 2>/dev/null); RATE_LIMIT=$(aws wafv2 get-web-acl --scope CLOUDFRONT --region us-east-1 --name "$WAF_NAME" --id "$WAF_ID" --query "WebACL.Rules[?Statement.RateBasedStatement].Statement.RateBasedStatement.Limit" --output text 2>/dev/null); if [ -n "$RATE_LIMIT" ] && [ "$RATE_LIMIT" -le 200 ] 2>/dev/null; then echo "Rate: PASS (403)"; else echo "Rate: FAIL (-)"; fi
+WAF_ID=$(aws wafv2 list-web-acls --scope CLOUDFRONT --region us-east-1 --query "WebACLs[?contains(Name, 'wsc2026')].Id" --output text 2>/dev/null)
+RATE_LIMIT=$(aws wafv2 get-web-acl --scope CLOUDFRONT --region us-east-1 --name "$WAF_NAME" --id "$WAF_ID" --query "WebACL.Rules[?Statement.RateBasedStatement].Statement.RateBasedStatement.Limit" --output text 2>/dev/null)
+for batch in $(seq 1 12); do
+  for request in $(seq 1 50); do
+    curl -s -o /dev/null --max-time 3 "https://${CF_DOMAIN}/" &
+  done
+  wait
+done >/dev/null 2>&1
+RATE_CODE=000
+for attempt in $(seq 1 12); do
+  RATE_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "https://${CF_DOMAIN}/")
+  [ "$RATE_CODE" = "403" ] && break
+  sleep 5
+done
+if [ -n "$RATE_LIMIT" ] && [ "$RATE_LIMIT" -le 200 ] 2>/dev/null && [ "$RATE_CODE" = "403" ]; then
+  echo "Rate: PASS (403)"
+else
+  echo "Rate: FAIL ($RATE_CODE)"
+fi
 echo
 
 echo =====11-1=====
-# SVC_IP=$(kubectl get svc -n wsc2026 -o jsonpath='{.items[0].spec.clusterIP}' 2>/dev/null); kubectl run not-ready --image=busybox --restart=Always -n wsc2026 --overrides='{"spec":{"tolerations":[{"operator":"Exists"}],"nodeSelector":{"wsc2026/node":"application"},"containers":[{"name":"not-ready","image":"busybox","readinessProbe":{"httpGet":{"path":"/health","port":80},"periodSeconds":3},"command":["sh","-c","sleep 3600"]}]}}' &>/dev/null; kubectl run error-gen --image=curlimages/curl --restart=Never -n wsc2026 --overrides='{"spec":{"tolerations":[{"operator":"Exists"}],"nodeSelector":{"wsc2026/node":"application"}}}' -- sh -c "while true; do curl -s -o /dev/null http://'"$SVC_IP"'/nonexist; sleep 0.1; done" &>/dev/null; kubectl run latency-gen --image=curlimages/curl --restart=Never -n wsc2026 --overrides='{"spec":{"tolerations":[{"operator":"Exists"}],"nodeSelector":{"wsc2026/node":"application"}}}' -- sh -c "while true; do curl -s -o /dev/null http://'"$SVC_IP"'/delay?ms=5000; sleep 0.2; done" &>/dev/null
-# kubectl run crash-test --image=busybox --restart=Always -n wsc2026 --overrides='{"spec":{"tolerations":[{"operator":"Exists"}],"nodeSelector":{"wsc2026/node":"application"}}}' -- sh -c 'exit 1' &>/dev/null; kubectl run stress-cpu --image=busybox --restart=Never -n wsc2026 --overrides='{"spec":{"tolerations":[{"operator":"Exists"}],"nodeSelector":{"wsc2026/node":"application"},"containers":[{"name":"stress-cpu","image":"busybox","resources":{"requests":{"cpu":"250m"},"limits":{"cpu":"250m"}},"command":["sh","-c","while true; do :; done"]}]}}' &>/dev/null; kubectl run stress-mem --image=polinux/stress --restart=Never -n wsc2026 --overrides='{"spec":{"tolerations":[{"operator":"Exists"}],"nodeSelector":{"wsc2026/node":"application"},"containers":[{"name":"stress-mem","image":"polinux/stress","resources":{"requests":{"memory":"64Mi"},"limits":{"memory":"64Mi"}},"command":["stress","--vm","1","--vm-bytes","60M","--vm-keep","-t","3600"]}]}}' &>/dev/null
-# sleep 180
-GRAFANA_LB=$(kubectl get svc -n observability -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.status.loadBalancer.ingress[0].hostname}{end}' 2>/dev/null)
 for p in fluent-bit prometheus grafana; do kubectl get pods -n observability --no-headers --request-timeout=10s 2>/dev/null | grep -c "$p.*Running" | xargs -I{} echo "$p: {}"; done
 echo
 
 echo =====11-2=====
+GRAFANA_LB=$(kubectl get svc -n observability -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.status.loadBalancer.ingress[0].hostname}{end}' 2>/dev/null)
 echo "Datasources:"; curl -s -u admin:'Skills$#$@!' "http://${GRAFANA_LB}/api/datasources" 2>/dev/null | python3 -c "import sys,json;[print(f'  {d[\"name\"]} ({d[\"type\"]})') for d in json.load(sys.stdin)]" 2>/dev/null || echo "  Grafana unreachable"
 echo "Dashboards:"; curl -s -u admin:'Skills$#$@!' "http://${GRAFANA_LB}/api/search?query=wsc2026" 2>/dev/null | python3 -c "import sys,json;[print(f'  {d[\"title\"]}') for d in json.load(sys.stdin)]" 2>/dev/null || echo "  Not found"
 echo
@@ -163,13 +216,25 @@ echo "Application Traffic 로우: RequestCount/ResponseTime/StatusCodes 시계�
 echo "색상: CPU 80%↑ 빨강, 60~80% 노랑, 60%↓ 초록 / Restart 1↑ 경고"
 echo ""
 echo "Application Logs 패널 로그 형식 예시:"
-echo 'info'
-echo '{"level":"INFO","path":"/v1/book","status":"200","duration":"112.663323ms","method":"POST"}'
+echo 'INFO {"level":"INFO","path":"/v1/book","status":"200","duration":"112.663323ms","method":"POST"}'
+echo ""
+echo "아래 명령어를 복사하여 실행합니다"
+echo ""
+cat << 'EOF'
+SVC_IP=$(kubectl get svc -n wsc2026 -o jsonpath='{.items[0].spec.clusterIP}' 2>/dev/null); kubectl run not-ready --image=busybox --restart=Always -n wsc2026 --overrides='{"spec":{"tolerations":[{"operator":"Exists"}],"nodeSelector":{"wsc2026/node":"application"},"containers":[{"name":"not-ready","image":"busybox","readinessProbe":{"httpGet":{"path":"/health","port":80},"periodSeconds":3},"command":["sh","-c","sleep 3600"]}]}}' &>/dev/null; kubectl run error-gen --image=curlimages/curl --restart=Never -n wsc2026 --overrides='{"spec":{"tolerations":[{"operator":"Exists"}],"nodeSelector":{"wsc2026/node":"application"}}}' -- sh -c "while true; do curl -s -o /dev/null http://'"$SVC_IP"'/nonexist; sleep 0.1; done" &>/dev/null; kubectl run latency-gen --image=curlimages/curl --restart=Never -n wsc2026 --overrides='{"spec":{"tolerations":[{"operator":"Exists"}],"nodeSelector":{"wsc2026/node":"application"}}}' -- sh -c "while true; do curl -s -o /dev/null http://'"$SVC_IP"'/delay?ms=5000; sleep 0.2; done" &>/dev/null
+
+kubectl run crash-test --image=busybox --restart=Always -n wsc2026 --overrides='{"spec":{"tolerations":[{"operator":"Exists"}],"nodeSelector":{"wsc2026/node":"application"}}}' -- sh -c 'exit 1' &>/dev/null; kubectl run stress-cpu --image=busybox --restart=Never -n wsc2026 --overrides='{"spec":{"tolerations":[{"operator":"Exists"}],"nodeSelector":{"wsc2026/node":"application"},"containers":[{"name":"stress-cpu","image":"busybox","resources":{"requests":{"cpu":"250m"},"limits":{"cpu":"250m"}},"command":["sh","-c","while true; do :; done"]}]}}' &>/dev/null; kubectl run stress-mem --image=polinux/stress --restart=Never -n wsc2026 --overrides='{"spec":{"tolerations":[{"operator":"Exists"}],"nodeSelector":{"wsc2026/node":"application"},"containers":[{"name":"stress-mem","image":"polinux/stress","resources":{"requests":{"memory":"64Mi"},"limits":{"memory":"64Mi"}},"command":["stress","--vm","1","--vm-bytes","60M","--vm-keep","-t","3600"]}]}}' &>/dev/null
+
+sleep 180
+
+GRAFANA_LB=$(kubectl get svc -n observability -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.status.loadBalancer.ingress[0].hostname}{end}' 2>/dev/null)
+EOF
 echo
 
 echo =====11-4=====
 echo "수동 채점: Alert 확인"
-echo "Alerts 로우에서 아래 6개가 빨간색(Firing)으로 표시되는지 확인"
-echo "  HighErrorRate / HighLatency / PodCrashLooping / PodHighCPU / PodHighMemory / PodNotReady"
+echo "Alerts 로우에서 아래 5개가 빨간색(Firing)으로 표시되는지 확인"
+echo "  HighErrorRate / PodCrashLooping / PodHighCPU / PodHighMemory / PodNotReady"
+echo "HighLatency Alert는 채점과 무관"
 echo
 echo

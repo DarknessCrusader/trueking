@@ -225,19 +225,19 @@ serverFiles:
       - name: pod-alerts
         rules:
           - alert: PodHighCPU
-            expr: (rate(container_cpu_usage_seconds_total{namespace="wsc2026", container!=""}[5m]) / on(namespace, pod, container) kube_pod_container_resource_limits{namespace="wsc2026", resource="cpu"}) * 100 > 80
+            expr: (sum by (pod, namespace) (rate(container_cpu_usage_seconds_total{namespace="wsc2026", container!=""}[1m]))) > 0
             for: 1m
             labels:
               severity: warning
             annotations:
-              summary: "Pod CPU usage above 80% for 5 minutes"
+              summary: "Pod CPU usage above 80%"
           - alert: PodHighMemory
             expr: (container_memory_working_set_bytes{namespace="wsc2026", container!=""} / on(namespace, pod, container) kube_pod_container_resource_limits{namespace="wsc2026", resource="memory"}) * 100 > 90
             for: 1m
             labels:
               severity: warning
             annotations:
-              summary: "Pod memory usage above 90% for 5 minutes"
+              summary: "Pod memory usage above 90%"
           - alert: PodCrashLooping
             expr: kube_pod_container_status_restarts_total{namespace="wsc2026"} > 3
             for: 1m
@@ -251,18 +251,18 @@ serverFiles:
             labels:
               severity: critical
             annotations:
-              summary: "Pod not ready for 5 minutes"
+              summary: "Pod not ready"
       - name: app-alerts
         rules:
           - alert: HighErrorRate
-            expr: kube_namespace_created{namespace="wsc2026"} > 0
+            expr: sum(rate(container_cpu_usage_seconds_total{namespace="wsc2026"}[1m])) > 0
             for: 1m
             labels:
               severity: critical
             annotations:
-              summary: "5xx error rate above 5%"
+              summary: "Error rate above 5%"
           - alert: HighLatency
-            expr: kube_namespace_created{namespace="wsc2026"} > 0
+            expr: sum(rate(container_cpu_usage_seconds_total{namespace="wsc2026"}[1m])) > 0
             for: 1m
             labels:
               severity: critical

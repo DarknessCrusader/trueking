@@ -1,7 +1,7 @@
 import base64
 import json
 import os
-from decimal import Decimal
+from datetime import datetime, timezone, timedelta
 
 import boto3
 from kafka import KafkaProducer
@@ -14,6 +14,8 @@ table = dynamodb.Table("wsc2026-sensor-data")
 AWS_REGION = "ap-northeast-1"
 BOOTSTRAP_SERVERS = os.environ["BOOTSTRAP_SERVERS"].split(",")
 ALERT_TOPIC = "wsc2026-sensor-alert"
+
+KST = timezone(timedelta(hours=9))
 
 
 class MSKTokenProvider(AbstractTokenProvider):
@@ -30,6 +32,18 @@ producer = KafkaProducer(
     key_serializer=lambda value: value.encode("utf-8"),
     value_serializer=lambda value: json.dumps(value).encode("utf-8"),
 )
+
+
+def to_kst(ts_str):
+    """Convert UTC timestamp to KST ISO8601 format."""
+    try:
+        if ts_str.endswith("Z"):
+            dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        else:
+            dt = datetime.fromisoformat(ts_str)
+        return dt.astimezone(KST).isoformat()
+    except (ValueError, AttributeError):
+        return ts_str
 
 
 def decode_record(record):
@@ -65,10 +79,16 @@ def consumer_handler(event, context):
                 data["alert_reason"] = "; ".join(reasons)
                 producer.send(ALERT_TOPIC, key=data["sensorId"], value=data).get(timeout=10)
 
-            item = {
-                key: str(value) if isinstance(value, float) else value
-                for key, value in data.items()
-            }
+            # Convert timestamp to KST, float to string
+            item = {}
+            for key, value in data.items():
+                if key == "timestamp":
+                    item[key] = to_kst(str(value))
+                elif isinstance(value, float):
+                    item[key] = str(value)
+                else:
+                    item[key] = value
+
             table.put_item(Item=item)
 
     producer.flush()

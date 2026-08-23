@@ -1,41 +1,46 @@
 #!/bin/bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 echo "ACCOUNT ID: $ACCOUNT_ID"
-aws configure set region eu-west-1
+aws configure set region ap-northeast-1
 
-INSTANCE_ID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=wsc2026-event-ec2" "Name=instance-state-name,Values=running,stopped" --query "Reservations[0].Instances[0].InstanceId" --output text)
-SG_ID=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=wsc2026-event-sg" --query "SecurityGroups[0].GroupId" --output text)
+read -p "등번호: " NUM
+BUCKET_NAME="wsc2026-sensor-alert-bucket-${NUM}"
+CLUSTER_ARN=$(aws kafka list-clusters --cluster-name-filter wsc2026-msk-cluster --query "ClusterInfoList[0].ClusterArn" --output text)
 
-# === Trigger EC2 stop + SG add ===
-aws ec2 stop-instances --instance-ids $INSTANCE_ID &>/dev/null
-aws ec2 authorize-security-group-ingress --group-id $SG_ID --protocol tcp --port 22 --cidr 0.0.0.0/0 &>/dev/null
+# 3-1 DynamoDB + S3
+echo ====================
+echo "  3-1 DynamoDB + S3"
+echo ====================
+aws dynamodb describe-table --table-name wsc2026-sensor-data --query "Table.[TableName,KeySchema[*].AttributeName]" --output text && aws s3api head-bucket --bucket $BUCKET_NAME 2>&1
 
-# 3-1 SNS + Lambda
+# 3-2 Lambda Functions
 echo ====================
-echo "  3-1 SNS + Lambda"
+echo "  3-2 Lambda Functions"
 echo ====================
-aws sns get-topic-attributes --topic-arn arn:aws:sns:eu-west-1:${ACCOUNT_ID}:wsc2026-event-alert --query "Attributes.TopicArn" --output text; for fn in wsc2026-ec2-stop-remediation wsc2026-ec2-terminate-alert wsc2026-sg-remediation wsc2026-tag-alert; do aws lambda get-function --function-name $fn --query "Configuration.[FunctionName,Runtime]" --output text; done
+for fn in wsc2026-sensor-consumer wsc2026-sensor-alert-consumer; do aws lambda get-function --function-name $fn --query "Configuration.[FunctionName,Runtime]" --output text; done
 
-# 3-2 EventBridge Rules
+# 3-3 MSK Cluster Configuration + Topics
+# (day2 신규: 기존 클러스터 상태 확인에 Topic 목록(Partition/ReplicationFactor) 검증 추가)
 echo ====================
-echo "  3-2 EventBridge Rules"
+echo "  3-3 MSK Cluster Configuration + Topics"
 echo ====================
-for rule in wsc2026-ec2-stop-rule wsc2026-ec2-terminate-rule; do echo "$rule -> $(aws events list-targets-by-rule --rule $rule --query "Targets[0].Arn" --output text)"; done
+aws kafka describe-cluster --cluster-arn $CLUSTER_ARN --query "ClusterInfo.[ClusterName,State,CurrentBrokerSoftwareInfo.KafkaVersion,BrokerNodeGroupInfo.InstanceType,ClientAuthentication.Sasl.Iam.Enabled]" --output text
+aws kafka list-topics --cluster-arn $CLUSTER_ARN --query "Topics[].[TopicName,ReplicationFactor,PartitionCount]" --output json | grep -A2 wsc2026
 
-# 3-3 AWS Config Rules
+# 3-4 MSK Trigger Mapping
 echo ====================
-echo "  3-3 AWS Config Rules"
+echo "  3-4 MSK Trigger Mapping"
 echo ====================
-aws configservice describe-config-rules --config-rule-names wsc2026-sg-ssh-rule wsc2026-required-tags-rule --query "ConfigRules[*].[ConfigRuleName,ConfigRuleState]" --output text
+for fn in wsc2026-sensor-consumer wsc2026-sensor-alert-consumer; do aws lambda list-event-source-mappings --function-name $fn --query "EventSourceMappings[0].[State]" --output text; done
 
-# 3-4 Remediation Test
+# 3-5 Data Processing Result
 echo ====================
-echo "  3-4 Remediation Test"
+echo "  3-5 Data Processing Result"
 echo ====================
-sleep 30; echo "EC2 State (expect running): $(aws ec2 describe-instances --instance-ids $INSTANCE_ID --query "Reservations[0].Instances[0].State.Name" --output text)"; echo "SG Inbound Count (expect 0): $(aws ec2 describe-security-groups --group-ids $SG_ID --query "SecurityGroups[0].IpPermissions | length(@)" --output text)"
+aws dynamodb scan --table-name wsc2026-sensor-data --max-items 1 --query "Items[0].{sensorId:sensorId.S,temperature:temperature.S,status:status.S}" --output json
 
-# 3-5 Tag Compliance
+# 3-6 Producer Running
 echo ====================
-echo "  3-5 Tag Compliance"
+echo "  3-6 Producer Running"
 echo ====================
-aws configservice get-compliance-details-by-config-rule --config-rule-name wsc2026-required-tags-rule --compliance-types NON_COMPLIANT --query "EvaluationResults[0].EvaluationResultIdentifier.EvaluationResultQualifier.ResourceId" --output text
+aws dynamodb scan --table-name wsc2026-sensor-data --max-items 3 --query "Items[*].{sensorId:sensorId.S,timestamp:timestamp.S}" --output json
